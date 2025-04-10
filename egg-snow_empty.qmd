@@ -1,6 +1,8 @@
 ---
 title: "Data Analaysis with the Arctic shorebird csv files"
 format: html
+editor_options: 
+  chunk_output_type: console
 ---
 
 
@@ -41,52 +43,50 @@ sites_data <- read_csv(here(path_raw, sites_csv))
 eggs_data <- read_csv(here(path_raw, eggs_csv))
 
 species_data <- read_csv(here(path_raw, species_csv))
+
+nest_data <- read_csv(here(path_raw, nests_csv))
 ```
 
+When we look at our egg data, we see that there is this column egg_num that gives an arbitrary number to the egg in that nest. We want there to only be one row per nest, rather than egg so we can join this table with nest. 
 
 Let's compute the number of eggs per nest. The column `Egg-num` seems to be a good candidate to estimate the number of eggs per nest:
 
 ```{r}
 eggs_sum <- eggs_data %>%
-  
+  group_by(Site, Year, Nest_ID) %>% 
+  summarize(Egg_count = max(Egg_num)) %>% # decided to use max number of eggs, but could have counted the number of rows for each grouped observation
+  ungroup()
 ```
 
 Then we can join with the nest table to bring the species information:
+Even though we would probably be fine to just join on nest_ID and year, we are also going to join on site. There is no problem with being extra safe
 
 ```{r}
-nest_species <- eggs_sum %>%
-  
+nest_egg_sum <- eggs_sum %>%
+  left_join(nest_data, join_by(Year, Site, Nest_ID))
 ```
 
 Now we can group by species:
 
 ```{r}
-nest_species_avg <- nest_species %>%
-  
+nest_species_avg <- nest_egg_sum %>%
+  group_by(Species) %>% 
+  summarize(Avg_egg_count = mean(Egg_count)) %>% 
+  arrange(desc(Avg_egg_count))
 ```
 
 Finally it would be better to have the name of the species and not only the 4-letter acronym:
 
 ```{r}
 nest_species_avg <- nest_species_avg %>%
-  
+  left_join(species_data, join_by(Species == Code)) %>% 
+  select(-c(Common_name, Relevance))
 ```
-
-Let's put it all together:
-
-```{r}
-nest_species_avg %>% 
-  select(-Relevance) %>%
-  relocate(avg_egg_numb, .after = last_col()) %>%
-  arrange(desc(avg_egg_numb))
-```
-
-
 
 
 ## Question 2: Does the snow amount & timing impact the number of eggs? Is it species dependant?
 
-Since the observations are made a different time, we will aggragate the data by month to have an common denominator in time.
+Since the observations are made a different time, we will aggregate the data by month to have an common denominator in time.
 
 ### Summarize the nests table
 
@@ -102,7 +102,7 @@ Yeah! `Date_found` is already in date format! We can thus directly aggregate the
 
 ```{r}
 nests_month <- nests_data %>%
-  
+  mutate(Month = month(Date_found))
 ```
 
 ### Summarize the snow cover table
@@ -119,14 +119,14 @@ The Date is stored as a character :/, we thus first we need to transform the dat
 
 ```{r}
 snowcover_data_fixed <- snowcover_data %>%
-  
+  mutate(Date2 = as_date(Date))
 ```
 
 We have 72 errors. Let's have a look at the date which failed:
 
 ```{r}
 snowcover_data_fixed %>% 
-
+  filter(is.na(Date2))
 ```
 
 
@@ -134,7 +134,7 @@ It is because 2 days were entered as one value `8&9 june 06`, it is not in the e
 
 ```{r}
 snowcover_data_fixed <- snowcover_data_fixed %>%
-  
+  mutate(Date2 = ifelse(is.na(Date == "8&9 june 6"), ymd("08/06/06"), Date))
 ```
 
 Mmm the Dates are not what we were expecting... It generally means there are different date types. Let's start by fixing the problematic dates before transforming it to the date format.
